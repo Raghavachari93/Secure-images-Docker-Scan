@@ -1,0 +1,74 @@
+name: Build, Scan & (optionally) Push
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-scan:
+    name: Build image & run Trivy scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t secure-image:${{ github.sha }} .
+
+      - name: Run Trivy: generate SARIF for GitHub Code Scanning
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          image-ref: secure-image:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+        # Trivy caches are handled by the action
+
+      - name: Upload Trivy SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Save Trivy JSON report as artifact (optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.json
+        # The JSON report is created in next step
+
+      - name: Run Trivy: also produce JSON (non-blocking)
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          image-ref: secure-image:${{ github.sha }}
+          format: json
+          output: trivy-report.json
+          exit-code: 0
+          skip-setup-trivy: true
+
+      - name: Fail on HIGH or CRITICAL vulnerabilities
+        # second call: fail build if we find HIGH/CRITICAL
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          image-ref: secure-image:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+          skip-setup-trivy: true
+
+      # Optional: push to Docker Hub / GHCR (uncomment & configure if you want)
+      # - name: Log in to Docker Hub
+      #   uses: docker/login-action@v2
+      #   with:
+      #     username: ${{ secrets.DOCKER_USERNAME }}
+      #     password: ${{ secrets.DOCKER_PASSWORD }}
+      #
+      # - name: Tag & push
+      #   run: |
+      #     docker tag secure-image:${{ github.sha }} ${{ secrets.DOCKER_USERNAME }}/secure-image:latest
+      #     docker push ${{ secrets.DOCKER_USERNAME }}/secure-image:latest
+
