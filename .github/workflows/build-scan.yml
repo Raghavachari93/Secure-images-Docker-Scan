@@ -1,4 +1,4 @@
-name: Build, Scan & (optionally) Push
+name: Build, Scan, SBOM & Publish (GHCR)
 
 on:
   push:
@@ -8,67 +8,96 @@ on:
 
 permissions:
   contents: read
+  packages: write
+  id-token: write
 
 jobs:
-  build-and-scan:
-    name: Build image & run Trivy scan
+  build-scan-publish:
+    name: Build image, scan, produce SBOM, upload SARIF & push to GHCR
     runs-on: ubuntu-latest
+
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/secure-image
+      IMAGE_TAG: ${{ github.sha }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build Docker image
         run: |
-          docker build -t secure-image:${{ github.sha }} .
+          docker build -t $IMAGE_NAME:$IMAGE_TAG .
 
-      - name: Run Trivy: generate SARIF for GitHub Code Scanning
+      - name: Run Trivy (SARIF for GitHub Code Scanning)
         uses: aquasecurity/trivy-action@v0.28.0
         with:
-          image-ref: secure-image:${{ github.sha }}
+          image-ref: $IMAGE_NAME:$IMAGE_TAG
           format: sarif
           output: trivy-results.sarif
-        # Trivy caches are handled by the action
 
       - name: Upload Trivy SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
 
-      - name: Save Trivy JSON report as artifact (optional)
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-report
-          path: trivy-report.json
-        # The JSON report is created in next step
-
-      - name: Run Trivy: also produce JSON (non-blocking)
+      - name: Run Trivy (JSON report, non-blocking)
         uses: aquasecurity/trivy-action@v0.28.0
         with:
-          image-ref: secure-image:${{ github.sha }}
+          image-ref: $IMAGE_NAME:$IMAGE_TAG
           format: json
           output: trivy-report.json
           exit-code: 0
           skip-setup-trivy: true
 
-      - name: Fail on HIGH or CRITICAL vulnerabilities
-        # second call: fail build if we find HIGH/CRITICAL
+      - name: Save Trivy JSON report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.json
+
+      - name: Generate SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@v0.28.0
         with:
-          image-ref: secure-image:${{ github.sha }}
+          image-ref: $IMAGE_NAME:$IMAGE_TAG
+          format: cyclonedx
+          output: sbom.cdx
+          exit-code: 0
+          skip-setup-trivy: true
+
+      - name: Upload SBOM as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx
+
+      - name: Fail on HIGH or CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          image-ref: $IMAGE_NAME:$IMAGE_TAG
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: 1
           skip-setup-trivy: true
 
-      # Optional: push to Docker Hub / GHCR (uncomment & configure if you want)
-      # - name: Log in to Docker Hub
-      #   uses: docker/login-action@v2
-      #   with:
-      #     username: ${{ secrets.DOCKER_USERNAME }}
-      #     password: ${{ secrets.DOCKER_PASSWORD }}
-      #
-      # - name: Tag & push
-      #   run: |
-      #     docker tag secure-image:${{ github.sha }} ${{ secrets.DOCKER_USERNAME }}/secure-image:latest
-      #     docker push ${{ secrets.DOCKER_USERNAME }}/secure-image:latest
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag image for GHCR (latest & sha)
+        run: |
+          docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:latest
+
+      - name: Push image to GHCR
+        run: |
+          docker push $IMAGE_NAME:$IMAGE_TAG
+          docker push $IMAGE_NAME:latest
 
