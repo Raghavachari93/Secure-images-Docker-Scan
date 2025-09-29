@@ -40,7 +40,7 @@ jobs:
       - name: Run Trivy (SARIF for GitHub Code Scanning)
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: $IMAGE_NAME:$IMAGE_TAG
+          image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           format: sarif
           output: trivy-results.sarif
 
@@ -52,7 +52,7 @@ jobs:
       - name: Run Trivy (JSON report, non-blocking)
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: $IMAGE_NAME:$IMAGE_TAG
+          image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           format: json
           output: trivy-report.json
           exit-code: 0
@@ -67,7 +67,7 @@ jobs:
       - name: Generate SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: $IMAGE_NAME:$IMAGE_TAG
+          image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           format: cyclonedx
           output: sbom.cdx
           exit-code: 0
@@ -82,7 +82,7 @@ jobs:
       - name: Fail on HIGH or CRITICAL vulnerabilities
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: $IMAGE_NAME:$IMAGE_TAG
+          image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: 1
