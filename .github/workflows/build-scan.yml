@@ -17,12 +17,15 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      IMAGE_NAME: ghcr.io/${{ lowercase(github.repository_owner) }}/secure-image
       IMAGE_TAG: ${{ github.sha }}
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Set lowercase IMAGE_NAME
+        run: |
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/secure-image" >> $GITHUB_ENV
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
